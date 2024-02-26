@@ -97,7 +97,7 @@ jobs:
       # Move jdk into contrib
       sudo apt --assume-yes install openjdk-11-jdk
       # Speed up build
-      sudo apt -y --no-install-recommends install unzip
+      sudo apt -y --no-install-recommends install unzip jq
       wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip
       unzip ninja-linux.zip
       sudo cp -v ninja /usr/local/bin/
@@ -155,11 +155,29 @@ jobs:
     displayName: 'Pack cov-int folder for submission'
 
   - script: |
-      curl --form token=$(COVERITY_TOKEN) \
-        --form email=$(COVERITY_USER) \
-        --form file=@openvino.tgz \
-        --form version="$(Build.SourceVersion)" \
-        --form description="https://github.com/openvinotoolkit/openvino/runs/$(Build.BuildNumber)" \
-        https://scan.coverity.com/builds?project=openvino
+      curl -X POST -d token=$(COVERITY_TOKEN) \
+        -d email=$(COVERITY_USER) \
+        -d file_name="openvino.tgz" \
+        -d version="$(Build.SourceVersion)" \
+        -d description="https://github.com/openvinotoolkit/openvino/runs/$(Build.BuildNumber)" \
+        https://scan.coverity.com/projects/21921/builds/init | tee response
+
+      upload_url=$(jq -r '.url' response)
+      build_id=$(jq -r '.build_id' response)
+      
+      curl -X PUT \
+        --header 'Content-Type: application/json' \
+        --upload-file openvino.tgz \
+        $upload_url
+      
+      curl -X PUT \
+        -d token=$(COVERITY_TOKEN) \
+      https://scan.coverity.com/projects/21921/builds/$build_id/enqueue
+
     workingDirectory: $(BUILD_DIR)
     displayName: 'Submit for analysis'
+
+  - publish: $(BUILD_DIR)/openvino.tgz
+    artifact: covInt
+    condition: always()
+    displayName: 'Publish cov-int artifact'
