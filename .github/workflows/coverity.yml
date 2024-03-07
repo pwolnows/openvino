@@ -99,11 +99,9 @@ jobs:
             -G "${{ env.CMAKE_GENERATOR }}" \
             -DENABLE_CPPLINT=OFF \
             -DENABLE_STRICT_DEPENDENCIES=OFF \
-            -DENABLE_SYSTEM_TBB=ON \
-            -DENABLE_SYSTEM_OPENCL=ON \
             -DCMAKE_VERBOSE_MAKEFILE=ON \
-            -DCPACK_GENERATOR=TGZ \
             -DBUILD_nvidia_plugin=OFF \
+            -DENABLE_FASTER_BUILD=OFF \
             -DOPENVINO_EXTRA_MODULES=${OPENVINO_CONTRIB_REPO}/modules \
             -DCMAKE_CXX_COMPILER_LAUNCHER=${{ env.CMAKE_CXX_COMPILER_LAUNCHER }} \
             -DCMAKE_C_COMPILER_LAUNCHER=${{ env.CMAKE_C_COMPILER_LAUNCHER }} \
@@ -122,9 +120,7 @@ jobs:
           popd
 
       - name: Cmake build - OpenVINO with Coverity
-        run: |
-           ${COVERITY_TOOL_DIR}/cov-analysis*/bin/cov-build --dir ${BUILD_DIR}/cov-int \
-            cmake --build ${BUILD_DIR} --parallel --config ${{ env.CMAKE_BUILD_TYPE }}
+        run: ${COVERITY_TOOL_DIR}/cov-analysis*/bin/cov-build --dir ${BUILD_DIR}/cov-int cmake --build ${BUILD_DIR} --parallel --config ${{ env.CMAKE_BUILD_TYPE }}
 
       - name: Show sccache stats
         run: ${SCCACHE_PATH} --show-stats
@@ -137,14 +133,26 @@ jobs:
 
       - name: Submit artefacts
         run: |
-          apt-get update && apt-get install -y curl
+          apt-get update && apt-get install -y curl jq
           pushd ${BUILD_DIR}
-            curl --form token=${{ secrets.COVERITY_TOKEN }} \
-              --form email=${{ secrets.COVERITY_USER }} \
-              --form file=@openvino.tgz \
-              --form version="${{ github.sha }}" \
-              --form description="https://github.com/openvinotoolkit/openvino/runs/${{ github.run_number }}" \
-              https://scan.coverity.com/builds?project=openvino
+            curl -X POST -d token=${{ secrets.COVERITY_TOKEN }} \
+              -d email=${{ secrets.COVERITY_USER }} \
+              -d file_name="openvino.tgz" \
+              -d version="${{ github.sha }}" \
+              -d description="https://github.com/openvinotoolkit/openvino/runs/${{ github.run_number }}" \
+              https://scan.coverity.com/projects/21921/builds/init | tee response
+          
+            upload_url=$(jq -r '.url' response)
+            build_id=$(jq -r '.build_id' response)
+          
+            curl -X PUT \
+              --header 'Content-Type: application/json' \
+              --upload-file openvino.tgz \
+              $upload_url
+            
+            curl -X PUT \
+              -d token=${{ secrets.COVERITY_TOKEN }} \
+            https://scan.coverity.com/projects/21921/builds/$build_id/enqueue
           popd
 
       - name: Show Coverity configure logs
@@ -157,4 +165,12 @@ jobs:
         with:
           name: coverity_logs
           path: ${{ env.BUILD_DIR }}/cov-int/build-log.txt
+          if-no-files-found: 'error'
+
+      - name: Upload Coverity build log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverity_archive
+          path: ${{ env.BUILD_DIR }}/openvino.tgz
           if-no-files-found: 'error'
