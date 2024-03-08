@@ -27,22 +27,14 @@ jobs:
     runs-on: aks-linux-16-cores-32gb
     container:
       image: openvinogithubactions.azurecr.io/dockerhub/ubuntu:20.04
-      volumes:
-        - /mount/caches:/mount/caches
-      options: -e SCCACHE_AZURE_BLOB_CONTAINER -e SCCACHE_AZURE_CONNECTION_STRING
     env:
       DEBIAN_FRONTEND: noninteractive # to prevent apt-get from waiting user input
       CMAKE_BUILD_TYPE: 'Release'
       CMAKE_GENERATOR: 'Ninja Multi-Config'
-      CMAKE_CXX_COMPILER_LAUNCHER: sccache
-      CMAKE_C_COMPILER_LAUNCHER: sccache
-      SCCACHE_IGNORE_SERVER_IO_ERROR: 1
-      SCCACHE_SERVER_PORT: 35555
       GITHUB_WORKSPACE: '/__w/openvino/openvino'
       OPENVINO_REPO: /__w/openvino/openvino/openvino
       OPENVINO_CONTRIB_REPO: /__w/openvino/openvino/openvino_contrib
       BUILD_DIR: /__w/openvino/openvino/openvino_build
-      SCCACHE_AZURE_KEY_PREFIX: coverity_ubuntu20_x86_64
       COVERITY_TOOL_DIR: /__w/openvino/openvino/coverity_tool
 
     steps:
@@ -76,11 +68,6 @@ jobs:
           # default-jdk - Java API
           apt install --assume-yes --no-install-recommends default-jdk
 
-      - name: Install sccache
-        uses: mozilla-actions/sccache-action@v0.0.4
-        with:
-          version: "v0.7.5"
-
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: ./openvino/.github/actions/setup_python
         with:
@@ -103,13 +90,8 @@ jobs:
             -DBUILD_nvidia_plugin=OFF \
             -DENABLE_FASTER_BUILD=OFF \
             -DOPENVINO_EXTRA_MODULES=${OPENVINO_CONTRIB_REPO}/modules \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=${{ env.CMAKE_CXX_COMPILER_LAUNCHER }} \
-            -DCMAKE_C_COMPILER_LAUNCHER=${{ env.CMAKE_C_COMPILER_LAUNCHER }} \
             -S ${OPENVINO_REPO} \
             -B ${BUILD_DIR}
-
-      - name: Clean sccache stats
-        run: ${SCCACHE_PATH} --zero-stats
 
       - name: Install Coverity tool
         run: |
@@ -121,9 +103,6 @@ jobs:
 
       - name: Cmake build - OpenVINO with Coverity
         run: ${COVERITY_TOOL_DIR}/cov-analysis*/bin/cov-build --dir ${BUILD_DIR}/cov-int cmake --build ${BUILD_DIR} --parallel --config ${{ env.CMAKE_BUILD_TYPE }}
-
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH} --show-stats
 
       - name: Pack Artefacts
         run: |
